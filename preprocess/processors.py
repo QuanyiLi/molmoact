@@ -10,7 +10,7 @@ import torch
 import torchvision.transforms as transforms
 from depth_anything_v2.dpt import DepthAnythingV2
 from line_utils import point_at_gripper
-from models.VQVAE import VQVAE
+from scripts.vqvae import VQVAE
 from PIL import Image
 from transformers import Qwen2Tokenizer
 from typing import Dict, List, Optional, Tuple, Union
