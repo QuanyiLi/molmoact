@@ -26,7 +26,8 @@ def main():
         with open(stat_path, "r") as f:
             stats = json.load(f)
             
-        action_stats = stats.get("action", {})
+        lerobot_data = stats.get("lerobot_data", {})
+        action_stats = lerobot_data.get("action", {})
         
         # We handle max/min if they exist
         low = action_stats.get("min")
