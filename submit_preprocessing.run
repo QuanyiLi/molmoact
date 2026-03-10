@@ -11,8 +11,8 @@
 #SBATCH --mem=200G
 
 # Configuration Parameters
-BASE_DIR="/root/wise_dataset_0.3.2"
-OUTPUT_DIR="/root/wise_dataset_0.3.2_processed"
+BASE_DIR="/work/vita/lanfeng/vlas/wise_dataset_0.3.2"
+OUTPUT_DIR="/work/vita/lanfeng/vlas/wise_dataset_0.3.2_processed"
 
 # World size: total number of GPUs across all nodes
 WORLD_SIZE=$(( SLURM_NNODES * SLURM_NTASKS_PER_NODE ))

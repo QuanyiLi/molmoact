@@ -20,8 +20,8 @@ def main():
     os.environ["CUDA_VISIBLE_DEVICES"] = str(args.local_rank)
     
     # Set environment variables for the preprocessing script
-    os.environ["DEPTH_CHECKPOINT_DIR"] = "/root/molmoact/Depth-Anything-V2/checkpoints"
-    os.environ["VQVAE_MODEL_PATH"] = "/root/molmoact/vae-final.pt"
+    os.environ["DEPTH_CHECKPOINT_DIR"] = "/work/vita/lanfeng/vlas/Depth-Anything-V2/checkpoints"
+    os.environ["VQVAE_MODEL_PATH"] = "/work/vita/lanfeng/vlas/vae-final.pt"
 
     # Find all *_train/lerobot_data directories
     search_pattern = os.path.join(args.base_dir, "**", "*_train", "lerobot_data")
