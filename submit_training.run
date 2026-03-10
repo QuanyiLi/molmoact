@@ -14,6 +14,7 @@ source /work/vita/lanfeng/conda_env/molmo/bin/activate
 
 # Weights & Biases Configuration
 export WANDB_PROJECT="molmoact-finetune"
+export WANDB_ENTITY="" # Empty string defaults to your authenticated WandB profile
 
 # Fetch the SLURM master node IP and assign it
 nodes=( $( scontrol show hostnames $SLURM_JOB_NODELIST ) )
