@@ -11,4 +11,6 @@ print("-" * 50)
 sample = ds[0]
 print(f"Raw Keys: {list(sample.keys())}")
 print("-" * 50)
+print(f"Depth (first 100): {sample['depth'][:100] if sample['depth'] else 'EMPTY'}")
+print(f"Trace: {sample['trace']}")
 print(f"Processed Action String: {sample['processed_action']}")
