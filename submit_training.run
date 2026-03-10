@@ -1,0 +1,37 @@
+#!/bin/bash
+#SBATCH --job-name=molmoact_finetune
+#SBATCH --output=/home/lfeng/task_logs/%j.log
+#SBATCH --partition=h100
+#SBATCH --qos=vita
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=64
+#SBATCH --gpus-per-node=4
+#SBATCH --nodes=3
+#SBATCH --time=24:00:00
+#SBATCH --mem=200G
+
+source /work/vita/lanfeng/conda_env/molmo/bin/activate
+
+# Fetch the SLURM master node IP and assign it
+nodes=( $( scontrol show hostnames $SLURM_JOB_NODELIST ) )
+nodes_array=($nodes)
+head_node=${nodes_array[0]}
+head_node_ip=$(srun --nodes=1 --ntasks=1 -w "$head_node" hostname --ip-address)
+
+echo Node IP: $head_node_ip
+
+# Distribute the torchrun command natively referencing to the SLURM environment
+srun torchrun \
+    --nnodes=3 \
+    --nproc_per_node=4 \
+    --rdzv_id=$SLURM_JOB_ID \
+    --rdzv_backend=c10d \
+    --rdzv_endpoint=$head_node_ip:29500 \
+    launch_scripts/train_multitask_model.py \
+    robot-finetune \
+    allenai/Molmo-7B-D-0924 \
+    --lora_enable \
+    --lora_rank 64 \
+    --lora_alpha 16 \
+    --lora_dropout 0.05 \
+    --lora_bias none
