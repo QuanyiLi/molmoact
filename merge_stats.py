@@ -11,8 +11,8 @@ def main():
     parser.add_argument("--output-dir", required=True, help="Output directory where the new JSON is dumped")
     args = parser.parse_args()
 
-    # Find all dataset_statistics.json
-    chunk_paths = glob.glob(os.path.join(args.input_dir, "config_*", "dataset_statistics.json"))
+    # Find all dataset_statistics.json across all subdirectories
+    chunk_paths = glob.glob(os.path.join(args.input_dir, "*", "dataset_statistics.json"))
     
     if not chunk_paths:
         print("No dataset_statistics.json found in the input subdirectories!")
