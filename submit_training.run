@@ -34,7 +34,7 @@ srun --export=ALL,PYTHONPATH=$(pwd):$PYTHONPATH torchrun \
     robot-finetune \
     allenai/MolmoAct-7B-D-0812 \
     --norm_stats_path /work/vita/lanfeng/vlas/wise_dataset_0.3.2_merged/dataset_statistics.json \
-    --save_folder checkpoints/wise_dataset_0.3.2_finetune \
+    --save_folder checkpoints/wise_dataset_0_3_2_finetune \
     --save_overwrite \
     --duration 10000 \
     --ft_embedding all \
