@@ -32,7 +32,7 @@ srun --export=ALL,PYTHONPATH=$(pwd):$PYTHONPATH torchrun \
     --rdzv_endpoint=$head_node_ip:29500 \
     launch_scripts/train_multitask_model.py \
     robot-finetune \
-    allenai/Molmo-7B-D-0924 \
+    allenai/MolmoAct-7B-D-0812 \
     --lora_enable \
     --lora_rank 64 \
     --lora_alpha 16 \
