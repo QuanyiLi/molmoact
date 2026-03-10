@@ -514,12 +514,14 @@ class DatasetProcessor:
         
         # Phase 4: Process all frames with depth, traces, and actions
         print("Processing frames with all features...")
-        dataset.reset_format()
+        # REMOVED dataset.reset_format() which strips Image/VideoFrame decoding wrappers 
+        # causing save_to_disk to drop the physical image bytes and create a 300KB arrow file.
         processed_dataset = dataset.map(
             lambda example, idx: self.process_frame(example, idx, frame_lines, frame_processed_actions),
             with_indices=True,
             desc="Adding depth, trace, and action data",
-            num_proc=1  
+            num_proc=1,
+            features=dataset.features # Explicitly enforce original structure preservation
         )
         
         # Save processed dataset
