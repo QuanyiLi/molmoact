@@ -35,6 +35,15 @@ def main():
     search_pattern = os.path.join(args.base_dir, "**", "*_train", "lerobot_data")
     train_dirs = sorted(glob.glob(search_pattern, recursive=True)) # Sorted is crucial for rank deterministic chunking
     
+    # --- HOTFIX: Prevent HuggingFace cache corruption from parallel downloads ---
+    # We force the global rank 0 to start executing 30 seconds before others.
+    # The first model init will safely download processor_config.json to the shared network drive.
+    import time
+    if args.rank != 0:
+        sleep_time = min(args.rank * 5, 120) 
+        print(f"[Rank {args.rank}] Waiting {sleep_time}s to let Rank 0 safely download HF cache configs...")
+        time.sleep(sleep_time)
+    
     if args.rank == 0:
         print(f"Worker {args.rank}: Found a total of {len(train_dirs)} training datasets to process.")
     
