@@ -23,6 +23,13 @@ def main():
     os.environ["DEPTH_CHECKPOINT_DIR"] = "/work/vita/lanfeng/vlas/Depth-Anything-V2/checkpoints"
     os.environ["VQVAE_MODEL_PATH"] = "/work/vita/lanfeng/vlas/vae-final.pt"
 
+    # Fix ModuleNotFoundError for depth_anything_v2 inside spawned python environments
+    depth_anything_dir = "/work/vita/lanfeng/vlas/Depth-Anything-V2"
+    if "PYTHONPATH" in os.environ:
+        os.environ["PYTHONPATH"] = f"{depth_anything_dir}:{os.environ['PYTHONPATH']}"
+    else:
+        os.environ["PYTHONPATH"] = depth_anything_dir
+
     # Find all *_train/lerobot_data directories
     search_pattern = os.path.join(args.base_dir, "**", "*_train", "lerobot_data")
     train_dirs = sorted(glob.glob(search_pattern, recursive=True)) # Sorted is crucial for rank deterministic chunking
