@@ -7,10 +7,20 @@ print(f"Dataset length: {len(ds)}")
 print(f"Features: {list(ds.features.keys())}")
 print("-" * 50)
 
-# Check the first row
-sample = ds[0]
-print(f"Raw Keys: {list(sample.keys())}")
-print("-" * 50)
-print(f"Depth (first 100): {sample['depth'][:100] if sample['depth'] else 'EMPTY'}")
-print(f"Trace: {sample['trace']}")
-print(f"Processed Action String: {sample['processed_action']}")
+# Check first 5 samples to see if it's consistent
+for i in range(min(5, len(ds))):
+    sample = ds[i]
+    print(f"--- Sample {i} ---")
+    print(f"Base 'action' exists: {'action' in sample and sample['action'] is not None}")
+    if 'action' in sample and sample['action'] is not None:
+        print(f"Base action value (first 3): {sample['action'][:3]}")
+    
+    pa = sample.get('processed_action', "MISSING_KEY")
+    print(f"Processed Action Raw: '{pa}'")
+    
+    depth_val = sample.get('depth', "")
+    print(f"Depth Length: {len(depth_val)}")
+    
+    trace_val = sample.get('trace', "")
+    print(f"Trace Content: {trace_val}")
+    print("-" * 30)
