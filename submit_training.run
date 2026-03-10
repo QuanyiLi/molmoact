@@ -33,8 +33,21 @@ srun --export=ALL,PYTHONPATH=$(pwd):$PYTHONPATH torchrun \
     launch_scripts/train_multitask_model.py \
     robot-finetune \
     allenai/MolmoAct-7B-D-0812 \
+    --norm_stats_path /work/vita/lanfeng/vlas/wise_dataset_0.3.2_merged/dataset_statistics.json \
+    --save_folder checkpoints/wise_dataset_0.3.2_finetune \
+    --save_overwrite \
+    --duration 10000 \
+    --ft_embedding all \
+    --depth_tokens \
+    --global_batch_size 16 \
+    --lr_connector 5e-4 \
+    --lr_vit 5e-4 \
+    --lr_llm 5e-4 \
+    --save_interval 2000 \
+    --save_num_checkpoints_to_keep 5 \
+    --max_images 2 \
     --lora_enable \
-    --lora_rank 64 \
+    --lora_rank 32 \
     --lora_alpha 16 \
-    --lora_dropout 0.05 \
-    --lora_bias none
+    --lora_dropout 0.0 \
+    --img_aug
