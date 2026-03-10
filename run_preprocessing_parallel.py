@@ -64,7 +64,7 @@ def main():
             continue
             
         cmd = [
-            "conda", "run", "-n", "molmoact", "python", "preprocess/action_reasoning_data.py",
+            "python", "preprocess/action_reasoning_data.py",
             "--dataset-path", d,
             "--output-path", curr_out_dir,
             "--depth-encoder", "vitb",
