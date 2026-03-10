@@ -20,14 +20,15 @@ export WANDB_ENTITY="" # Empty string defaults to your authenticated WandB profi
 nodes=( $( scontrol show hostnames $SLURM_JOB_NODELIST ) )
 nodes_array=($nodes)
 head_node=${nodes_array[0]}
-head_node_ip=$(srun --nodes=1 --ntasks=1 -w "$head_node" hostname --ip-address)
+head_node_ip=$(srun --nodes=1 --ntasks=1 -w "$head_node" hostname --ip-address | grep -E -o "([0-9]{1,3}\.){3}[0-9]{1,3}")
 
 echo Node IP: $head_node_ip
 
+export HF_HOME=/work/vita/lanfeng/hf_cache
 srun --nodes=1 --ntasks=1 -w "$head_node" python cache_model.py --repo-id allenai/MolmoAct-7B-D-0812
 
 # Distribute the torchrun command natively referencing to the SLURM environment
-srun --export=ALL,PYTHONPATH=$(pwd):$PYTHONPATH,OLMO_SHARED_FS=1 torchrun \
+srun --export=ALL,PYTHONPATH=$(pwd):$PYTHONPATH,HF_HOME=$HF_HOME,OLMO_SHARED_FS=1 torchrun \
     --nnodes=3 \
     --nproc_per_node=4 \
     --rdzv_id=$SLURM_JOB_ID \
