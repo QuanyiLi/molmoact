@@ -26,7 +26,7 @@ echo "Total workers (World Size): $WORLD_SIZE"
 # -l prefixes lines with the task ID.
 # $SLURM_PROCID is the global rank of the task (0 to WORLD_SIZE-1).
 # $SLURM_LOCALID is the local rank of the task on its current node (0 to 3).
-srun -l bash -c "python /root/molmoact/run_preprocessing_parallel.py \
+srun -l bash -c "python /work/vita/lanfeng/vlas/molmoact/run_preprocessing_parallel.py \
     --base-dir $BASE_DIR \
     --output-dir $OUTPUT_DIR \
     --world-size $WORLD_SIZE \
