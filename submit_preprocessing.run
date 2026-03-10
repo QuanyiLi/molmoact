@@ -1,0 +1,36 @@
+#!/bin/bash
+#SBATCH --job-name=vlas
+#SBATCH --output=/home/lfeng/task_logs/%j.log
+#SBATCH --partition=h100
+#SBATCH --qos=vita
+#SBATCH --ntasks-per-node=4
+#SBATCH --gpus-per-node=4
+#SBATCH --cpus-per-task=16
+#SBATCH --nodes=3
+#SBATCH --time=24:00:00
+#SBATCH --mem=200G
+
+# Configuration Parameters
+BASE_DIR="/root/wise_dataset_0.3.2"
+OUTPUT_DIR="/root/wise_dataset_0.3.2_processed"
+
+# World size: total number of GPUs across all nodes
+WORLD_SIZE=$(( SLURM_NNODES * SLURM_NTASKS_PER_NODE ))
+
+echo "Starting dataset preprocessing..."
+echo "Nodes: $SLURM_NNODES"
+echo "Tasks per node: $SLURM_NTASKS_PER_NODE"
+echo "Total workers (World Size): $WORLD_SIZE"
+
+# We use srun to parallelize.
+# -l prefixes lines with the task ID.
+# $SLURM_PROCID is the global rank of the task (0 to WORLD_SIZE-1).
+# $SLURM_LOCALID is the local rank of the task on its current node (0 to 3).
+srun -l bash -c "python /root/molmoact/run_preprocessing_parallel.py \
+    --base-dir $BASE_DIR \
+    --output-dir $OUTPUT_DIR \
+    --world-size $WORLD_SIZE \
+    --rank \$SLURM_PROCID \
+    --local-rank \$SLURM_LOCALID"
+
+echo "Preprocessing complete."
