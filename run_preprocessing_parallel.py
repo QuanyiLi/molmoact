@@ -36,13 +36,29 @@ def main():
     train_dirs = sorted(glob.glob(search_pattern, recursive=True)) # Sorted is crucial for rank deterministic chunking
     
     # --- HOTFIX: Prevent HuggingFace cache corruption from parallel downloads ---
-    # We force the global rank 0 to start executing 30 seconds before others.
-    # The first model init will safely download processor_config.json to the shared network drive.
+    # We must enforce that the massive Molmo-7B-D-0924 models and configs are downloaded sequentially by ONE process
     import time
-    if args.rank != 0:
-        sleep_time = min(args.rank * 5, 120) 
-        print(f"[Rank {args.rank}] Waiting {sleep_time}s to let Rank 0 safely download HF cache configs...")
-        time.sleep(sleep_time)
+    from transformers import AutoProcessor, AutoModelForCausalLM
+    model_id = "allenai/Molmo-7B-D-0924"
+    if args.rank == 0:
+        print(f"[Rank 0] Pre-downloading/caching {model_id} sequentially to prevent race conditions...")
+        AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+        AutoModelForCausalLM.from_pretrained(model_id, trust_remote_code=True)
+        # Create a tiny hidden marker file to let other ranks know it is 100% finished
+        os.makedirs(args.output_dir, exist_ok=True)
+        with open(os.path.join(args.output_dir, ".model_download_complete"), "w") as f:
+            f.write("done")
+        print("[Rank 0] Cache download complete. Signaling other workers.")
+    else:
+        print(f"[Rank {args.rank}] Waiting for Rank 0 to finish downloading transformers models...")
+        marker_file = os.path.join(args.output_dir, ".model_download_complete")
+        wait_time = 0
+        while not os.path.exists(marker_file):
+            time.sleep(10)
+            wait_time += 10
+            if wait_time % 60 == 0:
+                print(f"[Rank {args.rank}] Still waiting... ({wait_time}s)")
+        print(f"[Rank {args.rank}] Wait over! Rank 0 finished caching.")
     
     if args.rank == 0:
         print(f"Worker {args.rank}: Found a total of {len(train_dirs)} training datasets to process.")
