@@ -40,7 +40,7 @@ srun --export=ALL,PYTHONPATH=$(pwd):$PYTHONPATH torchrun \
     --duration 10000 \
     --ft_embedding all \
     --depth_tokens \
-    --global_batch_size 16 \
+    --global_batch_size 24 \
     --lr_connector 5e-4 \
     --lr_vit 5e-4 \
     --lr_llm 5e-4 \
