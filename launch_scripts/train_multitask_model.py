@@ -300,7 +300,7 @@ if __name__ == "__main__":
     elif args.mixture in ["robot-finetune"]:
         tasks = [
             ["finetune", [
-                "finetune:/path/to/processed_dataset",
+                "finetune:/work/vita/lanfeng/vlas/wise_dataset_0.3.2_merged",
             ], 1.0],
         ]
     else:
