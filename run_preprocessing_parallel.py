@@ -31,6 +31,9 @@ def main():
     else:
         os.environ["PYTHONPATH"] = f"{molmoact_dir}:{depth_anything_dir}"
 
+    # Bypass the user's globally corrupted HuggingFace Cache by isolating it
+    os.environ["HF_HOME"] = os.path.join(args.output_dir, ".hf_cache_isolated")
+
     # Find all *_train/lerobot_data directories
     search_pattern = os.path.join(args.base_dir, "**", "*_train", "lerobot_data")
     train_dirs = sorted(glob.glob(search_pattern, recursive=True)) # Sorted is crucial for rank deterministic chunking
