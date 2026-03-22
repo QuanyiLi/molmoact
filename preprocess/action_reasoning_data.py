@@ -407,6 +407,23 @@ class DatasetProcessor:
                 example['trace'] = "[]"
                 # Don't return early — still process actions below
             else:
+                # Save the decoded image so the processed dataset has an 'image' column
+                example['image'] = pil_image.convert('RGB')
+
+                # Also try to get the wrist image
+                wrist_image = None
+                if lerobot_ds is not None:
+                    try:
+                        lerobot_example = lerobot_ds[idx]
+                        for key in lerobot_example.keys():
+                            if 'wrist' in key.lower() and 'image' in key.lower():
+                                wrist_image = self._get_image_from_example({key.split('.')[-1]: lerobot_example[key]})
+                                break
+                    except Exception:
+                        pass
+                if wrist_image is not None:
+                    example['wrist_image'] = wrist_image.convert('RGB')
+
                 # Convert PIL to cv2 format for depth model
                 rgb_array = np.array(pil_image.convert('RGB'))
                 bgr_image = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)

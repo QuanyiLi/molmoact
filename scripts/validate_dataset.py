@@ -46,7 +46,23 @@ REQUIRED_COLUMNS = [
     "processed_action",
 ]
 
+# Known image column names (exact match)
 IMAGE_COLUMNS = ["image", "wrist_image"]
+# Patterns to search if exact names not found
+IMAGE_COLUMN_PATTERNS = ["observation.image", "observation.images"]
+
+
+def find_image_columns(columns):
+    """Discover image columns from dataset, trying exact names then patterns."""
+    found = [c for c in IMAGE_COLUMNS if c in columns]
+    if found:
+        return found
+    for pattern in IMAGE_COLUMN_PATTERNS:
+        matches = [c for c in columns if c.startswith(pattern)]
+        if matches:
+            return matches
+    # Last resort: any column with 'image' in the name
+    return [c for c in columns if 'image' in c.lower()]
 
 
 # ---------------------------------------------------------------------------
@@ -100,9 +116,9 @@ def check_trace(example: dict, idx: int, issues: list):
     return True
 
 
-def check_images(example: dict, idx: int, issues: list):
+def check_images(example: dict, idx: int, issues: list, image_columns: list):
     found_any = False
-    for col in IMAGE_COLUMNS:
+    for col in image_columns:
         if col not in example or example[col] is None:
             continue
         raw = example[col]
@@ -135,7 +151,7 @@ def check_images(example: dict, idx: int, issues: list):
         except Exception as e:
             issues.append(f"[idx={idx}] Image column '{col}' failed to open: {e}")
     if not found_any:
-        issues.append(f"[idx={idx}] No valid images found in columns {IMAGE_COLUMNS}")
+        issues.append(f"[idx={idx}] No valid images found in columns {image_columns}")
         return False
     return True
 
@@ -239,10 +255,12 @@ def validate_dataset(dataset_path: str, check_tok: bool = False, model_checkpoin
         log.error("FATAL: Required columns missing from dataset: %s", missing_cols)
         return False
 
-    has_any_image_col = any(c in columns for c in IMAGE_COLUMNS)
-    if not has_any_image_col:
-        log.error("FATAL: No image columns found. Expected at least one of: %s", IMAGE_COLUMNS)
+    actual_image_cols = find_image_columns(columns)
+    if not actual_image_cols:
+        log.error("FATAL: No image columns found. Expected at least one of: %s (or patterns: %s)",
+                  IMAGE_COLUMNS, IMAGE_COLUMN_PATTERNS)
         return False
+    log.info("Using image columns: %s", actual_image_cols)
 
     # Validate each example
     issues = []
@@ -274,7 +292,7 @@ def validate_dataset(dataset_path: str, check_tok: bool = False, model_checkpoin
             error_counts["processed_action_error"] += 1
 
         # Images
-        if not check_images(example, idx, issues):
+        if not check_images(example, idx, issues, actual_image_cols):
             error_counts["image_error"] += 1
 
     # Summary

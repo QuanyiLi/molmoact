@@ -9,13 +9,34 @@ import numpy as np
 
 from olmo.data.dataset import Dataset
 
-CAMERA_NAMES = ["image", "wrist_image"]
+DEFAULT_CAMERA_NAMES = ["image", "wrist_image"]
+# Fallback patterns to search if the default names are not found
+FALLBACK_IMAGE_PATTERNS = ["observation.image", "observation.images"]
 
 class CustomLeRobotDataset(Dataset):
     def __init__(self, path: str, high_res: bool = True, style: str = "demo", keep_in_memory: bool = False):
         self.dataset = datasets.load_from_disk(path, keep_in_memory=keep_in_memory)
         self.high_res = high_res
         self.style = style
+        self._camera_names = self._discover_image_columns()
+
+    def _discover_image_columns(self) -> List[str]:
+        """Find image columns in the dataset, trying defaults then fallback patterns."""
+        columns = self.dataset.column_names
+        # Try default names first
+        found = [c for c in DEFAULT_CAMERA_NAMES if c in columns]
+        if found:
+            return found
+        # Try fallback patterns
+        for pattern in FALLBACK_IMAGE_PATTERNS:
+            matches = [c for c in columns if c.startswith(pattern)]
+            if matches:
+                return matches
+        # Try any column with 'image' in the name
+        image_cols = [c for c in columns if 'image' in c.lower()]
+        if image_cols:
+            return image_cols
+        return DEFAULT_CAMERA_NAMES  # fall back to defaults
 
     def __len__(self):
         return len(self.dataset)
@@ -108,7 +129,9 @@ class CustomLeRobotDataset(Dataset):
         new_h = max(1, int(round(h * scale)))
         return img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
-    def extract_images(self, example: Dict, high_res: bool = True, camera_names: List[str] = CAMERA_NAMES) -> List[Image.Image]:
+    def extract_images(self, example: Dict, high_res: bool = True, camera_names: Optional[List[str]] = None) -> List[Image.Image]:
+        if camera_names is None:
+            camera_names = self._camera_names
         """
         Collect images from `example` for the provided camera names and return as a list of PIL.Image.
         Missing keys are skipped.
