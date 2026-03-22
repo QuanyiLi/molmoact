@@ -83,8 +83,60 @@ class DatasetProcessor:
         print("All processors initialized successfully!")
     
     
-    def _get_image_from_example(self, example: Dict) -> Optional[object]:
-        """Extract image from dataset example and convert to PIL Image.
+    def _convert_to_pil(self, image_data) -> Optional[Image.Image]:
+        """Convert raw image data to PIL Image.
+        
+        Args:
+            image_data: Image data in various formats (PIL, tensor, ndarray, dict, bytes, list)
+            
+        Returns:
+            PIL Image or None if conversion fails
+        """
+        if image_data is None:
+            return None
+        
+        if isinstance(image_data, Image.Image):
+            return image_data
+        elif isinstance(image_data, torch.Tensor):
+            # Convert from (C, H, W) to (H, W, C) and from [0, 1] to [0, 255]
+            image_array = (image_data.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+            return Image.fromarray(image_array)
+        elif isinstance(image_data, np.ndarray):
+            if image_data.dtype in (np.float32, np.float64):
+                image_array = (np.clip(image_data, 0, 1) * 255).astype(np.uint8)
+            else:
+                image_array = image_data.astype(np.uint8)
+            return Image.fromarray(image_array)
+        elif isinstance(image_data, dict):
+            if 'bytes' in image_data:
+                return Image.open(io.BytesIO(image_data['bytes'])).convert('RGB')
+            elif 'path' in image_data:
+                return Image.open(image_data['path']).convert('RGB')
+        elif isinstance(image_data, bytes):
+            return Image.open(io.BytesIO(image_data)).convert('RGB')
+        elif isinstance(image_data, list):
+            try:
+                image_array = np.array(image_data, dtype=np.uint8)
+                if len(image_array.shape) == 3:
+                    if image_array.shape[0] in [1, 3, 4]:
+                        image_array = np.transpose(image_array, (1, 2, 0))
+                    if image_array.shape[2] in [1, 3, 4]:
+                        return Image.fromarray(image_array)
+                    else:
+                        print(f"Warning: Invalid image shape after transpose: {image_array.shape}")
+                        return None
+                else:
+                    print(f"Warning: Invalid image dimensions: {image_array.shape}")
+                    return None
+            except Exception as e:
+                print(f"Warning: Could not convert list to image: {e}")
+                return None
+        else:
+            print(f"Warning: Unknown image type: {type(image_data)}")
+            return None
+
+    def _get_image_from_example(self, example: Dict) -> Optional[Image.Image]:
+        """Extract the main (non-wrist) image from dataset example and convert to PIL Image.
         
         Args:
             example: Dataset example dictionary
@@ -99,60 +151,15 @@ class DatasetProcessor:
         elif 'observation.image' in example:
             image_data = example['observation.image']
         else:
-            # Try to find any image field (excluding wrist camera)
+            # Try to find any image field (excluding wrist, segmentation, robot_state)
+            excluded = {'wrist', 'segmentation', 'robot_state'}
             image_keys = [k for k in example.keys() 
-                        if 'image' in k.lower() and 'wrist' not in k.lower()]
+                        if 'image' in k.lower() 
+                        and not any(ex in k.lower() for ex in excluded)]
             if image_keys:
                 image_data = example[image_keys[0]]
         
-        if image_data is None:
-            return None
-        
-        # Convert to PIL Image based on type
-        if isinstance(image_data, Image.Image):
-            return image_data
-        elif isinstance(image_data, torch.Tensor):
-            # Convert from (C, H, W) to (H, W, C) and from [0, 1] to [0, 255]
-            image_array = (image_data.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
-            return Image.fromarray(image_array)
-        elif isinstance(image_data, np.ndarray):
-            # Handle numpy arrays
-            if image_data.dtype in (np.float32, np.float64):
-                image_array = (np.clip(image_data, 0, 1) * 255).astype(np.uint8)
-            else:
-                image_array = image_data.astype(np.uint8)
-            return Image.fromarray(image_array)
-        elif isinstance(image_data, dict):
-            # HuggingFace datasets return images as dict after reset_format
-            if 'bytes' in image_data:
-                return Image.open(io.BytesIO(image_data['bytes'])).convert('RGB')
-            elif 'path' in image_data:
-                return Image.open(image_data['path']).convert('RGB')
-        elif isinstance(image_data, bytes):
-            return Image.open(io.BytesIO(image_data)).convert('RGB')
-        elif isinstance(image_data, list):
-            # HuggingFace may return decoded images as nested lists (could be C,H,W or H,W,C)
-            try:
-                image_array = np.array(image_data, dtype=np.uint8)
-                # Check if it's channel-first (C, H, W) and transpose to (H, W, C)
-                if len(image_array.shape) == 3:
-                    if image_array.shape[0] in [1, 3, 4]:  # Channels first: (C, H, W)
-                        image_array = np.transpose(image_array, (1, 2, 0))  # Convert to (H, W, C)
-                    
-                    if image_array.shape[2] in [1, 3, 4]:  # Valid channel-last format
-                        return Image.fromarray(image_array)
-                    else:
-                        print(f"Warning: Invalid image shape after transpose: {image_array.shape}")
-                        return None
-                else:
-                    print(f"Warning: Invalid image dimensions: {image_array.shape}")
-                    return None
-            except Exception as e:
-                print(f"Warning: Could not convert list to image: {e}")
-                return None
-        else:
-            print(f"Warning: Unknown image type: {type(image_data)}")
-            return None
+        return self._convert_to_pil(image_data)
         
         
     def _get_episode_id(self, example: Dict) -> int:
@@ -417,7 +424,7 @@ class DatasetProcessor:
                         lerobot_example = lerobot_ds[idx]
                         for key in lerobot_example.keys():
                             if 'wrist' in key.lower() and 'image' in key.lower():
-                                wrist_image = self._get_image_from_example({key.split('.')[-1]: lerobot_example[key]})
+                                wrist_image = self._convert_to_pil(lerobot_example[key])
                                 break
                     except Exception:
                         pass
