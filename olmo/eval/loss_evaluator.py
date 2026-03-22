@@ -59,6 +59,8 @@ class LossMetrics:
     ) -> None:
         loss_masks = batch["loss_masks"] * (batch["loss_masks"] > 0)
         total_weight = loss_masks.sum()
+        if total_weight == 0:
+            return
         labels = batch["labels"]
         pred = torch.argmax(model_out.logits, dim=-1)
         accuracy = ((pred.flatten() == labels.flatten()).float() * loss_masks.flatten()).sum().item()
