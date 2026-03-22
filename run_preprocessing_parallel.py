@@ -39,14 +39,18 @@ def main():
     train_dirs = sorted(glob.glob(search_pattern, recursive=True)) # Sorted is crucial for rank deterministic chunking
     
     # --- HOTFIX: Prevent HuggingFace cache corruption from parallel downloads ---
-    # We must enforce that the massive Molmo-7B-D-0924 models and configs are downloaded sequentially by ONE process
+    # We must enforce that models/tokenizers are downloaded sequentially by ONE process.
+    # This covers both the Molmo model (used by Point processor) and the Qwen2 tokenizer
+    # (used by ActionProcessor).
     import time
-    from transformers import AutoProcessor, AutoModelForCausalLM
+    from transformers import AutoProcessor, AutoModelForCausalLM, Qwen2Tokenizer
     model_id = "allenai/Molmo-7B-D-0924"
+    tokenizer_id = "Qwen/Qwen2-7B"
     if args.rank == 0:
-        print(f"[Rank 0] Pre-downloading/caching {model_id} sequentially to prevent race conditions...")
+        print(f"[Rank 0] Pre-downloading/caching {model_id} and {tokenizer_id} sequentially...")
         AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
         AutoModelForCausalLM.from_pretrained(model_id, trust_remote_code=True)
+        Qwen2Tokenizer.from_pretrained(tokenizer_id)
         # Create a tiny hidden marker file to let other ranks know it is 100% finished
         os.makedirs(args.output_dir, exist_ok=True)
         with open(os.path.join(args.output_dir, ".model_download_complete"), "w") as f:
