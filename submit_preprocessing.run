@@ -13,6 +13,8 @@
 # Configuration Parameters
 BASE_DIR="/work/vita/lanfeng/vlas/wise_dataset_0.3.2"
 OUTPUT_DIR="/work/vita/lanfeng/vlas/wise_dataset_0.3.2_processed"
+MERGED_DIR="/work/vita/lanfeng/vlas/wise_dataset_0.3.2_merged"
+MOLMOACT_DIR="/work/vita/lanfeng/vlas/molmoact"
 
 # World size: total number of GPUs across all nodes
 WORLD_SIZE=$(( SLURM_NNODES * SLURM_NTASKS_PER_NODE ))
@@ -22,11 +24,13 @@ echo "Nodes: $SLURM_NNODES"
 echo "Tasks per node: $SLURM_NTASKS_PER_NODE"
 echo "Total workers (World Size): $WORLD_SIZE"
 
-# We use srun to parallelize.
+# ============================================================
+# Step 1: Parallel preprocessing across all nodes/GPUs
+# ============================================================
 # -l prefixes lines with the task ID.
 # $SLURM_PROCID is the global rank of the task (0 to WORLD_SIZE-1).
 # $SLURM_LOCALID is the local rank of the task on its current node (0 to 3).
-srun -l bash -c "python /work/vita/lanfeng/vlas/molmoact/run_preprocessing_parallel.py \
+srun -l bash -c "python ${MOLMOACT_DIR}/run_preprocessing_parallel.py \
     --base-dir $BASE_DIR \
     --output-dir $OUTPUT_DIR \
     --world-size $WORLD_SIZE \
@@ -34,3 +38,26 @@ srun -l bash -c "python /work/vita/lanfeng/vlas/molmoact/run_preprocessing_paral
     --local-rank \$SLURM_LOCALID"
 
 echo "Preprocessing complete."
+
+# ============================================================
+# Step 2: Merge all subdatasets into a single dataset
+# ============================================================
+echo "Starting dataset merging..."
+
+python ${MOLMOACT_DIR}/merge_datasets.py \
+    --input-dir $OUTPUT_DIR \
+    --output-dir $MERGED_DIR
+
+echo "Dataset merging complete."
+
+# ============================================================
+# Step 3: Merge statistics across all subdatasets
+# ============================================================
+echo "Merging dataset statistics..."
+
+python ${MOLMOACT_DIR}/merge_stats.py \
+    --input-dir $OUTPUT_DIR \
+    --output-dir $MERGED_DIR
+
+echo "Statistics merging complete."
+echo "All done! Merged dataset ready at: $MERGED_DIR"

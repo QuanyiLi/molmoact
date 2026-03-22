@@ -177,11 +177,12 @@ class DatasetProcessor:
         return int(ep_id)
     
     
-    def collect_gripper_points(self, dataset) -> Dict[int, List[Dict]]:
+    def collect_gripper_points(self, dataset, lerobot_ds=None) -> Dict[int, List[Dict]]:
         """Collect gripper points for all frames grouped by episode.
         
         Args:
             dataset: HuggingFace dataset
+            lerobot_ds: LeRobotDataset instance for image access
             
         Returns:
             Dictionary mapping episode_id to list of frame info
@@ -194,7 +195,20 @@ class DatasetProcessor:
             episode_id = self._get_episode_id(example)
             if idx < 5:  # Debug first 5 frames
                 print(f"Frame {idx}: episode_id = {episode_id}")
-            pil_image = self._get_image_from_example(example)
+            
+            # Try to get image from lerobot_ds first (has video decoding),
+            # fall back to hf_dataset example
+            pil_image = None
+            if lerobot_ds is not None:
+                try:
+                    lerobot_example = lerobot_ds[idx]
+                    pil_image = self._get_image_from_example(lerobot_example)
+                except Exception as e:
+                    if idx < 5:
+                        print(f"Warning: Failed to get image from lerobot_ds[{idx}]: {e}")
+            
+            if pil_image is None:
+                pil_image = self._get_image_from_example(example)
             
             if pil_image is None:
                 print(f"Warning: No image found in frame {idx}")
@@ -214,8 +228,8 @@ class DatasetProcessor:
         
 
         print(f"Episode structure:")
-        print(f"Episodes dict keys: {list(episodes.keys())}")  # Add this line
-        print(f"Key types: {[type(k) for k in episodes.keys()]}")  # And this
+        print(f"Episodes dict keys: {list(episodes.keys())}")
+        print(f"Key types: {[type(k) for k in episodes.keys()]}")
         for ep_id, frames in episodes.items():
             print(f"  Episode {ep_id} (type: {type(ep_id)}): {len(frames)} frames")
         for ep_id, frames in episodes.items():
@@ -358,45 +372,60 @@ class DatasetProcessor:
         return frame_processed_actions
     
     def process_frame(self, example: Dict, idx: int, frame_lines: Dict[int, List[List[int]]], 
-                     frame_processed_actions: Optional[Dict[int, Dict]] = None) -> Dict:
+                     frame_processed_actions: Optional[Dict[int, Dict]] = None,
+                     lerobot_ds=None) -> Dict:
         """Process a single frame to add depth and trace information.
         
         Args:
             example: Dataset example
             idx: Frame index
             frame_lines: Pre-computed trajectory lines
+            frame_processed_actions: Pre-computed action data
+            lerobot_ds: LeRobotDataset instance for image access
             
         Returns:
             Updated example with depth and trace
         """
         try:
-            pil_image = self._get_image_from_example(example)
+            # Try to get image from lerobot_ds first (has video decoding),
+            # fall back to hf_dataset example
+            pil_image = None
+            if lerobot_ds is not None:
+                try:
+                    lerobot_example = lerobot_ds[idx]
+                    pil_image = self._get_image_from_example(lerobot_example)
+                except Exception as e:
+                    if idx < 5:
+                        print(f"Warning: Failed to get image from lerobot_ds[{idx}]: {e}")
+            
+            if pil_image is None:
+                pil_image = self._get_image_from_example(example)
             
             if pil_image is None:
                 print(f"Warning: No image found in frame {idx}")
                 example['depth'] = ""
                 example['trace'] = "[]"
-                return example
+                # Don't return early — still process actions below
+            else:
+                # Convert PIL to cv2 format for depth model
+                rgb_array = np.array(pil_image.convert('RGB'))
+                bgr_image = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
+                
+                # 1. Generate depth image
+                depth_image = self.depth_processor.inference_depth_from_rgb(bgr_image)
+                
+                # 2. Convert depth to grayscale and get tokens
+                depth_gray = cv2.cvtColor(depth_image, cv2.COLOR_BGR2GRAY)
+                depth_tokens = self.token_processor.inference_depth_tokens(depth_gray)
+                
+                # 3. Get the pre-computed line for this frame
+                line = frame_lines.get(idx, [])
+                
+                # Update example
+                example['depth'] = depth_tokens
+                example['trace'] = str(line)  # Store as string representation of list
             
-            # Convert PIL to cv2 format for depth model
-            rgb_array = np.array(pil_image.convert('RGB'))
-            bgr_image = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
-            
-            # 1. Generate depth image
-            depth_image = self.depth_processor.inference_depth_from_rgb(bgr_image)
-            
-            # 2. Convert depth to grayscale and get tokens
-            depth_gray = cv2.cvtColor(depth_image, cv2.COLOR_BGR2GRAY)
-            depth_tokens = self.token_processor.inference_depth_tokens(depth_gray)
-            
-            # 3. Get the pre-computed line for this frame
-            line = frame_lines.get(idx, [])
-            
-            # Update example
-            example['depth'] = depth_tokens
-            example['trace'] = str(line)  # Store as string representation of list
-            
-            # 4. Add processed action if available
+            # 4. Add processed action if available (always, even without image)
             if frame_processed_actions and idx in frame_processed_actions:
                 processed_action = frame_processed_actions[idx]
                 if processed_action:
@@ -408,13 +437,17 @@ class DatasetProcessor:
                 example['processed_action'] = "{}"
             
             if idx % 100 == 0:
-                status_msg = f"Processed frame {idx}: depth tokens={len(depth_tokens)}, trace points={len(line)}"
+                depth_info = example.get('depth', '')
+                trace_info = example.get('trace', '[]')
+                status_msg = f"Processed frame {idx}: depth tokens={len(depth_info)}, trace={trace_info[:50]}"
                 if self.process_actions and 'processed_action' in example:
                     status_msg += f", action processed={example['processed_action'] != '{}'}"
                 print(status_msg)
             
         except Exception as e:
             print(f"Error processing frame {idx}: {e}")
+            import traceback
+            traceback.print_exc()
             example['depth'] = ""
             example['trace'] = "[]"
             if self.process_actions:
@@ -500,8 +533,8 @@ class DatasetProcessor:
         if len(dataset) > 0:
             print(f"Sample frame fields: {list(dataset[0].keys())}")
         
-        # Phase 1: Collect all gripper points
-        episodes = self.collect_gripper_points(dataset)
+        # Phase 1: Collect all gripper points (use lerobot_ds for image access)
+        episodes = self.collect_gripper_points(dataset, lerobot_ds=lerobot_ds)
         
         # Phase 2: Build trajectory lines
         frame_lines = self.build_trajectory_lines(episodes)
@@ -516,7 +549,7 @@ class DatasetProcessor:
         print("Processing frames with all features...")
         dataset.reset_format()
         processed_dataset = dataset.map(
-            lambda example, idx: self.process_frame(example, idx, frame_lines, frame_processed_actions),
+            lambda example, idx: self.process_frame(example, idx, frame_lines, frame_processed_actions, lerobot_ds=lerobot_ds),
             with_indices=True,
             desc="Adding depth, trace, and action data",
             num_proc=1  
