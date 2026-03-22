@@ -1,0 +1,114 @@
+#!/bin/bash
+#SBATCH --job-name=test_preproc
+#SBATCH --output=/home/lfeng/task_logs/%j_test_preproc.log
+#SBATCH --partition=h100
+#SBATCH --qos=vita
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=16
+#SBATCH --gpus-per-node=1
+#SBATCH --nodes=1
+#SBATCH --time=4:00:00
+#SBATCH --mem=100G
+
+source /work/vita/lanfeng/conda_env/molmo/bin/activate
+
+# ============================================================
+# Configuration
+# ============================================================
+BASE_DIR="/work/vita/lanfeng/vlas/wise_dataset_0.3.2"
+OUTPUT_DIR="/work/vita/lanfeng/vlas/wise_dataset_0.3.2_test_processed"
+MOLMOACT_DIR="/work/vita/lanfeng/vlas/molmoact"
+MODEL_CHECKPOINT="allenai/MolmoAct-7B-D-0812"
+
+export HF_HOME=/work/vita/lanfeng/hf_cache
+export DEPTH_CHECKPOINT_DIR="/work/vita/lanfeng/vlas/Depth-Anything-V2/checkpoints"
+export VQVAE_MODEL_PATH="/work/vita/lanfeng/vlas/vae-final.pt"
+export PYTHONPATH="${MOLMOACT_DIR}:/work/vita/lanfeng/vlas/Depth-Anything-V2:${PYTHONPATH}"
+
+echo "============================================"
+echo "  MolmoAct Test: Preprocess + Validate"
+echo "============================================"
+echo "Base dir:   ${BASE_DIR}"
+echo "Output dir: ${OUTPUT_DIR}"
+echo "Node:       $(hostname)"
+echo "Start time: $(date)"
+echo "============================================"
+
+# ============================================================
+# Step 1: Pick ONE subset to process
+# ============================================================
+# Find the first *_train/lerobot_data directory
+SUBSET_DIR=$(find "${BASE_DIR}" -path "*_train/lerobot_data" -type d | sort | head -n 1)
+
+if [ -z "$SUBSET_DIR" ]; then
+    echo "ERROR: No *_train/lerobot_data directories found under ${BASE_DIR}"
+    exit 1
+fi
+
+echo ""
+echo "Selected subset: ${SUBSET_DIR}"
+
+# Derive output subdirectory name (mirrors run_preprocessing_parallel.py logic)
+PARENT_DIR=$(basename "$(dirname "$SUBSET_DIR")")
+GRANDPARENT_DIR=$(basename "$(dirname "$(dirname "$SUBSET_DIR")")")
+SUB_OUT="${GRANDPARENT_DIR}_${PARENT_DIR}"
+SUBSET_OUTPUT="${OUTPUT_DIR}/${SUB_OUT}"
+
+echo "Output will be: ${SUBSET_OUTPUT}"
+
+# ============================================================
+# Step 2: Preprocess the single subset
+# ============================================================
+echo ""
+echo ">>> Step 1/2: Preprocessing single subset..."
+echo "============================================"
+
+python ${MOLMOACT_DIR}/preprocess/action_reasoning_data.py \
+    --dataset-path "${SUBSET_DIR}" \
+    --output-path "${SUBSET_OUTPUT}" \
+    --depth-encoder vitb \
+    --line-length 5 \
+    --process-actions \
+    --action-bins 256 \
+    --action-chunk-size 8
+
+PREPROC_EXIT=$?
+
+if [ $PREPROC_EXIT -ne 0 ]; then
+    echo ""
+    echo "============================================"
+    echo "PREPROCESSING FAILED (exit code: $PREPROC_EXIT)"
+    echo "============================================"
+    exit $PREPROC_EXIT
+fi
+
+echo ""
+echo "Preprocessing complete for: ${SUBSET_OUTPUT}"
+
+# ============================================================
+# Step 3: Validate the processed subset
+# ============================================================
+echo ""
+echo ">>> Step 2/2: Validating processed dataset..."
+echo "============================================"
+
+python ${MOLMOACT_DIR}/scripts/validate_dataset.py \
+    --dataset-path "${SUBSET_OUTPUT}" \
+    --check-tokenization \
+    --model-checkpoint ${MODEL_CHECKPOINT} \
+    --tok-samples 50
+
+VALIDATE_EXIT=$?
+
+echo ""
+echo "============================================"
+echo "End time: $(date)"
+echo "============================================"
+if [ $VALIDATE_EXIT -eq 0 ]; then
+    echo "RESULT: Preprocess + Validate PASSED"
+else
+    echo "RESULT: Validation FAILED (exit code: $VALIDATE_EXIT)"
+fi
+echo "============================================"
+
+exit $VALIDATE_EXIT
