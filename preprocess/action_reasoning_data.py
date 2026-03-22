@@ -11,7 +11,7 @@ import os
 import shutil
 import sys
 import torch
-from datasets import load_from_disk
+from datasets import load_from_disk, Image as DatasetsImage
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from PIL import Image
 from tqdm import tqdm
@@ -562,6 +562,19 @@ class DatasetProcessor:
             action_episodes = self.collect_episode_actions(dataset)
             frame_processed_actions = self.process_episode_actions(action_episodes)
         
+        # --- CRITICAL FIX: Declare image columns in the schema BEFORE map() ---
+        # HuggingFace datasets.map() silently drops new columns that aren't in
+        # the existing Arrow schema.  process_frame() sets example['image'] and
+        # example['wrist_image'] as PIL images, but without declaring them here
+        # they are silently discarded when the mapped table is written.
+        new_features = dataset.features.copy()
+        if 'image' not in new_features:
+            new_features['image'] = DatasetsImage()
+        if 'wrist_image' not in new_features:
+            new_features['wrist_image'] = DatasetsImage()
+        dataset = dataset.cast(new_features)
+        print(f"Dataset features after schema cast: {list(dataset.features.keys())}")
+
         # Phase 4: Process all frames with depth, traces, and actions
         print("Processing frames with all features...")
         dataset.reset_format()
