@@ -1,0 +1,47 @@
+#!/bin/bash
+#SBATCH --job-name=validate_data
+#SBATCH --output=/home/lfeng/task_logs/%j_validate.log
+#SBATCH --partition=h100
+#SBATCH --qos=vita
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=16
+#SBATCH --gpus-per-node=1
+#SBATCH --nodes=1
+#SBATCH --time=4:00:00
+#SBATCH --mem=100G
+
+source /work/vita/lanfeng/conda_env/molmo/bin/activate
+
+# Configuration
+DATASET_PATH="/work/vita/lanfeng/vlas/wise_dataset_0.3.2_merged"
+MOLMOACT_DIR="/work/vita/lanfeng/vlas/molmoact"
+MODEL_CHECKPOINT="allenai/MolmoAct-7B-D-0812"
+export HF_HOME=/work/vita/lanfeng/hf_cache
+export PYTHONPATH=${MOLMOACT_DIR}:${PYTHONPATH}
+
+echo "============================================"
+echo "  MolmoAct Dataset Validation"
+echo "============================================"
+echo "Dataset:    ${DATASET_PATH}"
+echo "Model:      ${MODEL_CHECKPOINT}"
+echo "Node:       $(hostname)"
+echo "Start time: $(date)"
+echo "============================================"
+
+# Run validation (with optional tokenization check)
+python ${MOLMOACT_DIR}/scripts/validate_dataset.py \
+    --dataset-path ${DATASET_PATH} \
+    --check-tokenization \
+    --model-checkpoint ${MODEL_CHECKPOINT} \
+    --tok-samples 200
+
+EXIT_CODE=$?
+
+echo "============================================"
+echo "End time: $(date)"
+if [ $EXIT_CODE -eq 0 ]; then
+    echo "RESULT: Dataset validation PASSED"
+else
+    echo "RESULT: Dataset validation FAILED (exit code: $EXIT_CODE)"
+fi
+echo "============================================"
