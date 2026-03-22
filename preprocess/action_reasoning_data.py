@@ -469,11 +469,11 @@ class DatasetProcessor:
             print(f"Filtering to episodes: {episodes}")
         
         # Try loading with LeRobotDataset first
-
+        # Use pyav backend since torchcodec requires FFmpeg shared libs not available on all nodes
         if episodes is not None:
-            lerobot_ds = LeRobotDataset(repo_id=dataset_path, episodes=episodes)
+            lerobot_ds = LeRobotDataset(repo_id=dataset_path, episodes=episodes, video_backend="pyav")
         else:
-            lerobot_ds = LeRobotDataset(repo_id=dataset_path)
+            lerobot_ds = LeRobotDataset(repo_id=dataset_path, video_backend="pyav")
         
         # Extract task mapping from metadata
         task_mapping = {}
