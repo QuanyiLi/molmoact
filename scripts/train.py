@@ -18,7 +18,7 @@ from omegaconf import OmegaConf, open_dict
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from olmo.exceptions import OLMoCliError, OLMoConfigurationError
-from olmo.io import file_exists, write_file
+from olmo.io import file_exists, write_file, resource_path
 from olmo.train.checkpointer import Checkpointer, load_model_state_unsharded, load_model_state_hf, is_unsharded_checkpoint, is_hf_checkpoint
 from olmo.torch_util import (
     barrier,
@@ -191,6 +191,55 @@ def run_trainer(cfg: TrainConfig) -> None:
     if cfg.compile:
         olmo_model.apply_compile(**cfg.compile.compile_args())
 
+    # When LoRA is enabled and loading from an HF/unsharded checkpoint, we must
+    # load weights and apply LoRA BEFORE FSDP wrapping, because FSDP shards the
+    # parameters and LoRA would see the sharded dimensions instead of the full ones.
+    pre_fsdp_lora = model_cfg.lora_enable and (start_from_hf or start_from_unsharded)
+
+    if pre_fsdp_lora:
+        log.info("LoRA enabled with HF/unsharded checkpoint: loading weights and applying LoRA before FSDP...")
+        # Materialize the model on rank 0 CPU
+        if get_global_rank() == 0:
+            olmo_model = olmo_model.to_empty(device="cpu")
+            if start_from_unsharded:
+                log.info(f"Loading unsharded model from {start_from}")
+                state_dict = torch.load(
+                    resource_path(start_from, "model.pt"),
+                    map_location="cpu", weights_only=True
+                )
+                olmo_model.load_state_dict(state_dict)
+                del state_dict
+            elif start_from_hf:
+                log.info(f"Loading huggingface model from {start_from}")
+                from transformers import AutoModelForImageTextToText
+                from olmo.train.checkpointer import convert_hf_to_state
+                hf_model = AutoModelForImageTextToText.from_pretrained(
+                    start_from, trust_remote_code=True, torch_dtype=torch.float32
+                )
+                state_dict = convert_hf_to_state(hf_model.state_dict())
+                del hf_model
+                olmo_model.load_state_dict(state_dict)
+                del state_dict
+
+        # Apply LoRA on the full (unsharded) model — must happen before FSDP
+        from peft import LoraConfig, get_peft_model
+
+        lora_config = LoraConfig(
+            r=model_cfg.lora_rank,
+            lora_alpha=min(model_cfg.lora_rank, model_cfg.lora_alpha),
+            target_modules="all-linear",
+            lora_dropout=model_cfg.lora_dropout,
+            bias=model_cfg.lora_bias,
+            init_lora_weights="gaussian",
+        )
+
+        log.info("Adding LoRA adapters before FSDP wrapping...")
+        olmo_model = get_peft_model(olmo_model, lora_config)
+
+        log.info(f"Peak GPU Memory (MB) after LoRA: {int(peak_gpu_memory() or 0)}")
+        log.info("LoRA Model:")
+        log.info(olmo_model)
+
     # Shard the model, and initialize if we are not loading a checkpoint
     if cfg.fsdp and not cfg.fsdp.fsdp2:
         log.info("Wrapping model with FSDP...")
@@ -202,6 +251,9 @@ def run_trainer(cfg: TrainConfig) -> None:
                 olmo_model = olmo_model.to_empty(device="cpu")
                 olmo_model.reset_with_pretrained_weights()
             sync_module_states = True
+        elif pre_fsdp_lora:
+            # Weights already loaded on rank 0 and LoRA applied, broadcast to all ranks
+            sync_module_states = True
         else:
             sync_module_states = False
 
@@ -210,11 +262,15 @@ def run_trainer(cfg: TrainConfig) -> None:
         def dummy_init_fn(module: torch.nn.Module) -> None:
             module.to_empty(device=device, recurse=False)
 
+        wrap_target = olmo_model
+        # For LoRA-wrapped models, get the base model for the wrap policy
+        wrap_policy_model = olmo_model.base_model.model if pre_fsdp_lora else olmo_model
+
         fsdp_model = FSDP(
-            olmo_model,
+            wrap_target,
             **cfg.fsdp.get_fsd_args(cfg.autocast_precision),
             param_init_fn=dummy_init_fn,
-            auto_wrap_policy=olmo_model.get_fsdp_wrap_policy(cfg.fsdp.wrapping_strategy),
+            auto_wrap_policy=wrap_policy_model.get_fsdp_wrap_policy(cfg.fsdp.wrapping_strategy),
             device_id=get_local_rank(),
             sync_module_states=sync_module_states,
         )
@@ -231,11 +287,13 @@ def run_trainer(cfg: TrainConfig) -> None:
 
     torch.cuda.empty_cache()
 
-    log.info(f"Total number of parameters: {olmo_model.num_params():,d}")
-    log.info(f"Number of non-embedding parameters: {olmo_model.num_params(include_embedding=False):,d}")
+    # For logging, get the underlying model (unwrap LoRA if needed)
+    log_model = olmo_model.base_model.model if pre_fsdp_lora else olmo_model
+    log.info(f"Total number of parameters: {log_model.num_params():,d}")
+    log.info(f"Number of non-embedding parameters: {log_model.num_params(include_embedding=False):,d}")
     get_trainable_params(olmo_model)
-    if olmo_model.config.llm.block_type == "moe":
-        log.info(f"Number of active parameters: {olmo_model.num_params(include_inactive_params=False):,d}")
+    if log_model.config.llm.block_type == "moe":
+        log.info(f"Number of active parameters: {log_model.num_params(include_inactive_params=False):,d}")
     log.info(f"Peak GPU Memory (MB) after FSDP: {int(peak_gpu_memory() or 0)}")
     log.info("Model:")
     log.info(fsdp_model)
@@ -365,22 +423,26 @@ def run_trainer(cfg: TrainConfig) -> None:
         if start_from:
             # Load the starting checkpoint if there is one
             t0 = time.perf_counter()
-            if start_from_unsharded:
-                log.info(f"Loading unshared model from {start_from}")
-                load_model_state_unsharded(start_from, fsdp_model)
 
-            if start_from_hf:
-                log.info(f"Loading huggingface model from {start_from}")
-                load_model_state_hf(start_from, fsdp_model)
+            if pre_fsdp_lora:
+                # Weights already loaded and LoRA already applied before FSDP wrapping
+                log.info("Weights and LoRA were applied pre-FSDP, skipping post-FSDP loading.")
+            else:
+                if start_from_unsharded:
+                    log.info(f"Loading unshared model from {start_from}")
+                    load_model_state_unsharded(start_from, fsdp_model)
 
-            if model_cfg.lora_enable:
+                if start_from_hf:
+                    log.info(f"Loading huggingface model from {start_from}")
+                    load_model_state_hf(start_from, fsdp_model)
+
+            if model_cfg.lora_enable and not pre_fsdp_lora:
+                # LoRA for non-HF/non-unsharded checkpoints (e.g., sharded checkpoints)
                 from peft import LoraConfig, get_peft_model
 
-                # same lora config as openvla
                 lora_config = LoraConfig(
                     r=model_cfg.lora_rank,
                     lora_alpha=min(model_cfg.lora_rank, model_cfg.lora_alpha),
-                    # target_modules=find_all_linear_names(fsdp_model, model_cfg),
                     target_modules="all-linear",
                     lora_dropout=model_cfg.lora_dropout,
                     bias=model_cfg.lora_bias,
