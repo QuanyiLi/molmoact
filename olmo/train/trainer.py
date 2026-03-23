@@ -725,9 +725,15 @@ class Trainer:
             del model_out
 
             # Run backward pass.
-            loss.backward()
-            total_loss += loss.detach()
-                    
+            if torch.isfinite(loss):
+                loss.backward()
+                total_loss += loss.detach()
+            else:
+                log.warning(
+                    "Skipping backward pass: loss is %s (ce_loss=%s, batch_size_in_tokens=%s)",
+                    loss.item(), ce_loss.item(), batch_size_in_tokens.item(),
+                )
+                     
         return total_loss
 
     def train_step(self, batch: Dict[str, Any], compute_metrics: bool = True) -> Dict[str, float]:
