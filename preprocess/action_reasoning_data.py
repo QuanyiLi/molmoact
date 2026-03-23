@@ -574,11 +574,16 @@ class DatasetProcessor:
         # the existing Arrow schema.  process_frame() sets example['image'] and
         # example['wrist_image'] as PIL images, but without declaring them here
         # they are silently discarded when the mapped table is written.
+        # cast() can only change types of existing columns — it cannot add new
+        # ones.  Images stored as video don't appear as Arrow columns, so we
+        # must create placeholder columns first.
+        if 'image' not in dataset.column_names:
+            dataset = dataset.add_column('image', [None] * len(dataset))
+        if 'wrist_image' not in dataset.column_names:
+            dataset = dataset.add_column('wrist_image', [None] * len(dataset))
         new_features = dataset.features.copy()
-        if 'image' not in new_features:
-            new_features['image'] = DatasetsImage()
-        if 'wrist_image' not in new_features:
-            new_features['wrist_image'] = DatasetsImage()
+        new_features['image'] = DatasetsImage()
+        new_features['wrist_image'] = DatasetsImage()
         dataset = dataset.cast(new_features)
         print(f"Dataset features after schema cast: {list(dataset.features.keys())}")
 
