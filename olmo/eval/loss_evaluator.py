@@ -61,10 +61,18 @@ class LossMetrics:
         total_weight = loss_masks.sum()
         if total_weight == 0:
             return
+        # Guard against NaN loss (e.g. from bf16 overflow or corrupt data)
+        ce_normalized = cross_entropy_loss / total_weight
+        if torch.isnan(ce_normalized) or torch.isinf(ce_normalized):
+            log.warning(
+                "Skipping metrics update: ce_loss=%s, total_weight=%s",
+                cross_entropy_loss.item(), total_weight.item(),
+            )
+            return
         labels = batch["labels"]
         pred = torch.argmax(model_out.logits, dim=-1)
         accuracy = ((pred.flatten() == labels.flatten()).float() * loss_masks.flatten()).sum().item()
-        self.eval_metrics["CrossEntropyLoss"].update(cross_entropy_loss/total_weight, total_weight)
+        self.eval_metrics["CrossEntropyLoss"].update(ce_normalized, total_weight)
         if zloss is not None:
             self.eval_metrics["ZLoss"].update(zloss/total_weight, total_weight)
         self.eval_metrics["Accuracy"].update(accuracy/total_weight, total_weight)
